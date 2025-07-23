@@ -212,7 +212,7 @@ func GetAllProducts(WCCnf types.ApiConfig, workerCount int) (chan types.WooComme
 				defer wg.Done()
 				for page := range pageChannel {
 				retry:
-					url := fmt.Sprintf("%s/wp-json/wc/v3/products?per_page=%d&page=%d", WCCnf.BaseUrl, ProductsPerRequest, page)
+					url := fmt.Sprintf("%s/wp-json/wc/v3/products?per_page=%d&page=%d&orderby=id&order=asc&_=%d", WCCnf.BaseUrl, ProductsPerRequest, page, time.Now().UnixMilli())
 					var response_products []types.WooCommerceProduct
 					resp, err := wc_client.Request(url, &rest.RequestOptions{
 						Method:           "GET",
@@ -319,26 +319,6 @@ func GetAllTags(WCCnf types.ApiConfig, workerCount int) (chan types.WCTag, chan 
 	}()
 
 	return tags, errors
-}
-
-func GetAllCategories(WCCnf types.ApiConfig) ([]types.WCCategory, error) {
-	shouldRetry := true
-	var categories []types.WCCategory
-	resp, err := wc_client.Request(WCCnf.BaseUrl+"/wp-json/wc/v3/products/categories?per_page=100", &rest.RequestOptions{
-		Method:           "GET",
-		Headers:          map[string]string{"Authorization": "Basic " + WCCnf.APIKey},
-		WithNetworkRetry: shouldRetry,
-	}, &categories)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Unexpected StatusCode from retrieving categories: %d", resp.StatusCode)
-	}
-
-	return categories, nil
 }
 
 func CreateProducts(WPCnf, WCCnf types.ApiConfig, Products []types.WooCommerceProduct, workerCount int) chan error {

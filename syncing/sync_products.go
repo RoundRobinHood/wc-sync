@@ -55,55 +55,59 @@ func SyncProducts(wp_cnf, wc_cnf types.ApiConfig, TarsusProducts []types.TarsusP
 		}
 	}
 
-	SKUs := make([]string, 0, len(createCache))
-	for sku := range createCache {
-		SKUs = append(SKUs, sku)
-	}
-	fmt.Println("SKUs to be created:", SKUs)
-
-	fmt.Println("Validating & converting Tarsus products to WooCommerce products...")
-	bar := pb.StartNew(len(createCache))
-	createProducts := make([]types.WooCommerceProduct, 0, len(createCache))
-	for sku := range createCache {
-		exists, err := wc.SKUExists(wc_cnf, sku)
-		if err != nil {
-			fmt.Printf("Failed to check if product already exists (skipping product, SKU %q): \n%v\n", sku, err)
-			time.Sleep(time.Second)
-			bar.Increment()
-			continue
-		}
-		if exists {
-			fmt.Println("Product SKU already exists on WP site. Skipping")
-			time.Sleep(time.Second)
-			bar.Increment()
-			continue
-		}
-
-		tarsusProduct := lookup[sku]
-		time.Sleep(time.Second)
-		wcProduct, err := wc.FromTarsusProduct(tarsusProduct, wp_cnf)
-		if err != nil {
-			fmt.Printf("Failed to convert Tarsus Product (SKU: %q): %v\n", sku, err)
-		} else {
-			createProducts = append(createProducts, wcProduct)
-		}
-		if len(wcProduct.Images) == 0 {
-			fmt.Printf("WARNING: Product (SKU: %q) had an invalid image and is scheduled to be created with no images.\n", sku)
-		}
-		bar.Increment()
-		time.Sleep(time.Second)
-	}
-	bar.Finish()
-
-	time.Sleep(time.Second)
-
-	if len(createProducts) == 0 {
-		fmt.Println("No product creation required.")
+	if len(createCache) == 0 {
+		fmt.Println("No products to be created.")
 	} else {
-		fmt.Println("Creating products that weren't on the WP site...")
-		errors = wc.CreateProducts(wp_cnf, wc_cnf, createProducts, 1)
-		for err := range errors {
-			fmt.Fprintln(os.Stderr, err)
+		SKUs := make([]string, 0, len(createCache))
+		for sku := range createCache {
+			SKUs = append(SKUs, sku)
+		}
+		fmt.Println("SKUs to be created:", SKUs)
+
+		fmt.Println("Validating & converting Tarsus products to WooCommerce products...")
+		bar := pb.StartNew(len(createCache))
+		createProducts := make([]types.WooCommerceProduct, 0, len(createCache))
+		for sku := range createCache {
+			exists, err := wc.SKUExists(wc_cnf, sku)
+			if err != nil {
+				fmt.Printf("Failed to check if product already exists (skipping product, SKU %q): \n%v\n", sku, err)
+				time.Sleep(time.Second)
+				bar.Increment()
+				continue
+			}
+			if exists {
+				fmt.Println("Product SKU already exists on WP site. Skipping")
+				time.Sleep(time.Second)
+				bar.Increment()
+				continue
+			}
+
+			tarsusProduct := lookup[sku]
+			time.Sleep(time.Second)
+			wcProduct, err := wc.FromTarsusProduct(tarsusProduct, wp_cnf)
+			if err != nil {
+				fmt.Printf("Failed to convert Tarsus Product (SKU: %q): %v\n", sku, err)
+			} else {
+				createProducts = append(createProducts, wcProduct)
+			}
+			if len(wcProduct.Images) == 0 {
+				fmt.Printf("WARNING: Product (SKU: %q) had an invalid image and is scheduled to be created with no images.\n", sku)
+			}
+			bar.Increment()
+			time.Sleep(time.Second)
+		}
+		bar.Finish()
+
+		time.Sleep(time.Second)
+
+		if len(createProducts) == 0 {
+			fmt.Println("No product creation required.")
+		} else {
+			fmt.Println("Creating products that weren't on the WP site...")
+			errors = wc.CreateProducts(wp_cnf, wc_cnf, createProducts, 1)
+			for err := range errors {
+				fmt.Fprintln(os.Stderr, err)
+			}
 		}
 	}
 }

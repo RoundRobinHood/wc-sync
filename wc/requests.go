@@ -2,6 +2,7 @@ package wc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/RoundRobinHood/jouma-data-migration/rest"
 	"github.com/RoundRobinHood/jouma-data-migration/types"
+	"github.com/RoundRobinHood/jouma-data-migration/wp"
 	"github.com/cheggaaa/pb/v3"
 )
 
@@ -50,7 +52,7 @@ func_start:
 	return total, nil
 }
 
-func CreateProduct(WCCnf types.ApiConfig, product types.WooCommerceProduct) error {
+func CreateProduct(WPCnf types.ApiConfig, WCCnf types.ApiConfig, product types.WooCommerceProduct) error {
 func_start:
 	fmt.Printf("Attempting to create product with SKU %q\n", product.SKU)
 	resp, err := wc_client.Request(WCCnf.BaseUrl+"/wp-json/wc/v3/products", &rest.RequestOptions{
@@ -65,11 +67,28 @@ func_start:
 	}
 
 	if resp.StatusCode != 201 {
+
 		if resp.StatusCode == 504 {
-			fmt.Println("Got 504. Retrying...")
+			fmt.Println("Got 504.")
+			fmt.Println("Sleeping & checking if image made it onto the server...")
+			jitterSleep(false)
+			if len(product.Images) != 0 && product.Images[0].Href != "" {
+				id, err := wp.GetImageID(WPCnf, product.Images[0].Href)
+				if err != nil {
+					if !errors.Is(err, wp.ErrImageNotExist) {
+						return fmt.Errorf("failed to check if image exists: %w", err)
+					} else {
+						fmt.Println("Image not on server. Retrying 504 again.")
+					}
+				} else {
+					fmt.Println("Image already on server. Retrying with its ID...")
+					product.Images[0] = types.WCImage{Id: id}
+				}
+			}
 			jitterSleep(true)
-			return CreateProduct(WCCnf, product)
+			goto func_start
 		}
+
 		if resp.StatusCode == 429 {
 			fmt.Printf("Retrying product creation (SKU: %q)\n", product.SKU)
 			jitterSleep(true)
@@ -84,8 +103,10 @@ func_start:
 				if errResponse.Code == "woocommerce_product_image_upload_error" {
 					fmt.Fprintf(os.Stderr, "WARNING: Image error for product (SKU: %q). Resending POST without images\n", product.SKU)
 					product.Images = []types.WCImage{}
-					return CreateProduct(WCCnf, product)
+					goto func_start
 				} else if errResponse.Code == "product_invalid_sku" {
+				status:
+					fmt.Printf("Invalid sku (%q), checking if product already exists...\n", product.SKU)
 					var products []types.WooCommerceProduct
 					_resp, err := wc_client.Request(WCCnf.BaseUrl+"/wp-json/wc/v3/products?sku="+url.QueryEscape(product.SKU), &rest.RequestOptions{
 						Method:           "GET",
@@ -94,12 +115,12 @@ func_start:
 					}, &products)
 					if err != nil {
 						if _resp.StatusCode == 429 {
-							fmt.Printf("Retrying product creation (SKU: %q)\n", product.SKU)
+							fmt.Printf("Retrying product status check (SKU: %q)\n", product.SKU)
 							jitterSleep(true)
-							goto func_start
+							goto status
 						}
 						return fmt.Errorf("failed to double-check if product (SKU: %q) already exists: %w", product.SKU, err)
-					} else if len(products) == 1 {
+					} else if len(products) > 0 {
 						return nil
 					} else {
 						return fmt.Errorf("invalid SKU (%q). Response body:\n%s\n", product.SKU, string(resp.Body))
@@ -156,6 +177,8 @@ func GetAllProducts(WCCnf types.ApiConfig, workerCount int) (chan types.WooComme
 		pageCount := (product_count + ProductsPerRequest - 1) / ProductsPerRequest
 		bar := pb.StartNew(pageCount)
 		defer bar.Finish()
+		defer close(errors)
+		defer close(products)
 
 		pageChannel := make(chan int, 0)
 		go func() {
@@ -205,8 +228,6 @@ func GetAllProducts(WCCnf types.ApiConfig, workerCount int) (chan types.WooComme
 		}
 
 		wg.Wait()
-		close(products)
-		close(errors)
 	}()
 
 	return products, errors
@@ -305,7 +326,7 @@ func GetAllCategories(WCCnf types.ApiConfig) ([]types.WCCategory, error) {
 	return categories, nil
 }
 
-func CreateProducts(WCCnf types.ApiConfig, Products []types.WooCommerceProduct, workerCount int) chan error {
+func CreateProducts(WPCnf, WCCnf types.ApiConfig, Products []types.WooCommerceProduct, workerCount int) chan error {
 	fmt.Printf("Creating %d products with %d workers", len(Products), workerCount)
 	productChannel := make(chan types.WooCommerceProduct, 0)
 	go func() {
@@ -326,7 +347,7 @@ func CreateProducts(WCCnf types.ApiConfig, Products []types.WooCommerceProduct, 
 			go func(i int) {
 				defer wg.Done()
 				for product := range productChannel {
-					if err := CreateProduct(WCCnf, product); err != nil {
+					if err := CreateProduct(WPCnf, WCCnf, product); err != nil {
 						errors <- err
 						return
 					}

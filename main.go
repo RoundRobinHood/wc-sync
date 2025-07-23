@@ -88,12 +88,18 @@ func main() {
 		return
 	}
 
-	basic := base64.StdEncoding.EncodeToString([]byte(key + ":" + secret))
+	wc_auth := base64.StdEncoding.EncodeToString([]byte(key + ":" + secret))
 	wc_config := types.ApiConfig{
 		BaseUrl: wc_url,
-		APIKey:  basic,
+		APIKey:  wc_auth,
+	}
+
+	wp_auth := base64.StdEncoding.EncodeToString([]byte(app_user + ":" + app_pass))
+	wp_config := types.ApiConfig{
+		BaseUrl: wc_url,
+		APIKey:  wp_auth,
 	}
 
 	fmt.Printf("Syncing towards WooCommerce API at %q\n", wc_url)
-	syncing.SyncUp(wc_config, products.Products)
+	syncing.SyncUp(wp_config, wc_config, products.Products)
 }

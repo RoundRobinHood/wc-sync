@@ -1,16 +1,16 @@
 package syncing
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/RoundRobinHood/jouma-data-migration/types"
 	"github.com/RoundRobinHood/jouma-data-migration/wc"
+	"github.com/cheggaaa/pb/v3"
 )
 
-func SyncUp(cnf types.ApiConfig, TarsusProducts []types.TarsusProduct) {
+func SyncUp(wp_cnf, cnf types.ApiConfig, TarsusProducts []types.TarsusProduct) {
 	// Used to quickly check SKUs against tarsus products
 	lookup := map[string]types.TarsusProduct{}
 
@@ -45,28 +45,36 @@ func SyncUp(cnf types.ApiConfig, TarsusProducts []types.TarsusProduct) {
 
 	<-errEnd
 
-	fmt.Println("Deleting products that weren't on Tarsus...")
-	errors = wc.DeleteProducts(cnf, deleteList, 3, 40)
-	for err := range errors {
-		fmt.Println(err)
+	if len(deleteList) == 0 {
+		fmt.Println("No products to delete on WP site.")
+	} else {
+		fmt.Println("Deleting products that weren't on Tarsus...")
+		errors = wc.DeleteProducts(cnf, deleteList, 3, 40)
+		for err := range errors {
+			fmt.Println(err)
+		}
 	}
 
-	createProducts := make([]types.WooCommerceProduct, len(createCache))
-	i := 0
+	fmt.Println("Converting Tarsus products to WooCommerce products...")
+	bar := pb.StartNew(len(createCache))
+	createProducts := make([]types.WooCommerceProduct, 0, len(createCache))
 	for sku := range createCache {
 		tarsusProduct := lookup[sku]
-		wcProduct := wc.FromTarsusProduct(tarsusProduct)
-		createProducts[i] = wcProduct
-		i++
+		wcProduct, err := wc.FromTarsusProduct(tarsusProduct, wp_cnf)
+		if err != nil {
+			fmt.Printf("Failed to convert Tarsus Product (SKU: %q): %v\n", sku, err)
+		} else {
+			createProducts = append(createProducts, wcProduct)
+		}
+		bar.Increment()
+		time.Sleep(time.Second)
 	}
-
-	if bytes, err := json.Marshal(createProducts); err == nil {
-		fmt.Println(string(bytes))
-	}
+	bar.Finish()
 
 	time.Sleep(time.Second)
 
-	errors = wc.CreateProducts(cnf, createProducts, 1)
+	fmt.Println("Creating products that weren't on the WP site...")
+	errors = wc.CreateProducts(wp_cnf, cnf, createProducts, 1)
 	for err := range errors {
 		fmt.Fprintln(os.Stderr, err)
 	}

@@ -52,6 +52,30 @@ func_start:
 	return total, nil
 }
 
+func SKUExists(WCCnf types.ApiConfig, SKU string) (bool, error) {
+func_start:
+	var products []types.WooCommerceProduct
+	resp, err := wc_client.Request(WCCnf.BaseUrl+"/wp-json/wc/v3/products?sku="+url.QueryEscape(SKU), &rest.RequestOptions{
+		Method:           "GET",
+		Headers:          map[string]string{"Authorization": "Basic " + WCCnf.APIKey},
+		WithNetworkRetry: true,
+	}, &products)
+	if err != nil {
+		if resp.StatusCode == 429 {
+			fmt.Printf("Got 429 when checking for SKU (%q). Retrying...\n", SKU)
+			jitterSleep(true)
+			goto func_start
+		}
+		return false, fmt.Errorf("failed to check for sku: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return false, fmt.Errorf("unexpected statuscode: %d", resp.StatusCode)
+	}
+
+	return len(products) != 0, nil
+}
+
 func CreateProduct(WPCnf types.ApiConfig, WCCnf types.ApiConfig, product types.WooCommerceProduct) error {
 func_start:
 	fmt.Printf("Attempting to create product with SKU %q\n", product.SKU)
@@ -105,22 +129,13 @@ func_start:
 					product.Images = []types.WCImage{}
 					goto func_start
 				} else if errResponse.Code == "product_invalid_sku" {
-				status:
 					fmt.Printf("Invalid sku (%q), checking if product already exists...\n", product.SKU)
-					var products []types.WooCommerceProduct
-					_resp, err := wc_client.Request(WCCnf.BaseUrl+"/wp-json/wc/v3/products?sku="+url.QueryEscape(product.SKU), &rest.RequestOptions{
-						Method:           "GET",
-						Headers:          map[string]string{"Authorization": "Basic " + WCCnf.APIKey},
-						WithNetworkRetry: true,
-					}, &products)
+					exists, err := SKUExists(WCCnf, product.SKU)
 					if err != nil {
-						if _resp.StatusCode == 429 {
-							fmt.Printf("Retrying product status check (SKU: %q)\n", product.SKU)
-							jitterSleep(true)
-							goto status
-						}
 						return fmt.Errorf("failed to double-check if product (SKU: %q) already exists: %w", product.SKU, err)
-					} else if len(products) > 0 {
+					}
+
+					if exists {
 						return nil
 					} else {
 						return fmt.Errorf("invalid SKU (%q). Response body:\n%s\n", product.SKU, string(resp.Body))
@@ -156,7 +171,7 @@ func UpdateProduct(WCCnf types.ApiConfig, product types.WooCommerceProduct) erro
 var ProductsPerRequest = 100
 
 func GetAllProducts(WCCnf types.ApiConfig, workerCount int) (chan types.WooCommerceProduct, chan error) {
-	infoUrl := WCCnf.BaseUrl + "/wp-json/wc/v3/products?per_page=1"
+	infoUrl := WCCnf.BaseUrl + "/wp-json/wc/v3/products?per_page=1&orderby=id&order=asc&_=" + fmt.Sprint(time.Now().UnixMilli())
 	products, errors := make(chan types.WooCommerceProduct, 0), make(chan error, 0)
 
 	go func() {

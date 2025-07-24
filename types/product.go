@@ -110,9 +110,11 @@ type WCTag struct {
 }
 
 type WCCategory struct {
-	Id   int    `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
-	Slug string `json:"slug,omitempty"`
+	Id         int    `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Slug       string `json:"slug,omitempty"`
+	ParentID   int    `json:"parent,omitempty"`
+	ParentName string `json:"-"`
 }
 
 type WCImage struct {

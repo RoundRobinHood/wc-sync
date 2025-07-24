@@ -178,6 +178,7 @@ func GetAllProducts(WCCnf types.ApiConfig, workerCount int) (chan types.WooComme
 		product_count, err := GetItemCount(infoUrl, &rest.RequestOptions{
 			Method:           "GET",
 			WithNetworkRetry: true,
+			RetryDelay:       time.Second,
 			Headers:          map[string]string{"Authorization": "Basic " + WCCnf.APIKey},
 		})
 		if err != nil {
@@ -391,7 +392,7 @@ func DeleteProducts(WCCnf types.ApiConfig, IDs []int, workerCount, maxBatch int)
 					}, nil)
 
 					if err != nil {
-						errors <- fmt.Errorf("delete request failed (killing worker %d", i)
+						errors <- fmt.Errorf("delete request failed (killing worker %d)", i)
 						return
 					}
 

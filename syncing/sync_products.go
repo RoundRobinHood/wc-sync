@@ -3,6 +3,7 @@ package syncing
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/RoundRobinHood/jouma-data-migration/types"
@@ -10,12 +11,15 @@ import (
 	"github.com/cheggaaa/pb/v3"
 )
 
-func SyncProducts(wp_cnf, wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct) {
+func SyncProducts(wp_cnf, wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct, category_ids map[string]int) {
 	// Used to quickly check SKUs against tarsus products
 	lookup := map[string]types.TarsusProduct{}
 
 	// Delete a key when you find it (leftovers have to be created on WC)
 	createCache := map[string]struct{}{}
+
+	// List of update objects
+	updateChecks := make([]types.WooCommerceProduct, 0)
 
 	// List of IDs to be deleted
 	deleteList := make([]int, 0)
@@ -37,13 +41,40 @@ func SyncProducts(wp_cnf, wc_cnf types.ApiConfig, TarsusProducts []types.TarsusP
 
 	fmt.Println("Reading products from WC site...")
 	for product := range products {
-		delete(createCache, product.SKU)
-		if _, ok := lookup[product.SKU]; !ok {
-			deleteList = append(deleteList, product.ID)
+		if _, ok := lookup[product.SKU]; ok {
+			delete(createCache, product.SKU)
+			updateChecks = append(updateChecks, product)
+		} else {
+			deleteList = append(deleteList, *product.ID)
 		}
 	}
 
 	<-errEnd
+
+	if len(updateChecks) == 0 {
+		fmt.Println("No products to update-check.")
+	} else {
+		fmt.Println("Checking if any products need to be updated...")
+		bar := pb.StartNew(len(updateChecks))
+		for _, product := range updateChecks {
+			update, err := wc.MakeUpdate(lookup[product.SKU], product, wp_cnf, category_ids)
+			if err != nil {
+				fmt.Printf("Failed to check if product should be updated (SKU: %q), err: %v\n", product.SKU, err)
+			} else {
+				if !reflect.ValueOf(update).IsZero() {
+					fmt.Printf("Updating product (SKU: %q)...\n", product.SKU)
+					update.ID = product.ID
+					err := wc.UpdateProduct(wc_cnf, *update)
+					if err != nil {
+						fmt.Printf("Failed to update product: %v\n", err)
+					}
+					time.Sleep(time.Second)
+				}
+			}
+			bar.Increment()
+		}
+		bar.Finish()
+	}
 
 	if len(deleteList) == 0 {
 		fmt.Println("No products to delete on WP site.")
@@ -84,7 +115,7 @@ func SyncProducts(wp_cnf, wc_cnf types.ApiConfig, TarsusProducts []types.TarsusP
 
 			tarsusProduct := lookup[sku]
 			time.Sleep(time.Second)
-			wcProduct, err := wc.FromTarsusProduct(tarsusProduct, wp_cnf)
+			wcProduct, err := wc.FromTarsusProduct(tarsusProduct, wp_cnf, category_ids)
 			if err != nil {
 				fmt.Printf("Failed to convert Tarsus Product (SKU: %q): %v\n", sku, err)
 			} else {

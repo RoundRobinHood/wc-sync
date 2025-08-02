@@ -7,7 +7,9 @@ import (
 	"github.com/RoundRobinHood/jouma-data-migration/wc"
 )
 
-func SyncCategories(wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct) {
+func SyncCategories(wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct) map[string]int {
+	ids := map[string]int{}
+
 	// Used to quickly check SKUs against tarsus products
 	lookup := map[string]*types.WCCategory{}
 
@@ -41,6 +43,7 @@ func SyncCategories(wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct
 
 	fmt.Println("Reading category pages from WC...")
 	for category := range categories {
+		ids[category.Name] = category.Id
 		if ptr := lookup[category.Name]; ptr != nil {
 			ptr.Id = category.Id
 			ptr.ParentID = category.ParentID
@@ -70,8 +73,8 @@ func SyncCategories(wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct
 	if len(createCache) == 0 {
 		fmt.Println("No categories to create")
 	} else {
-		workerCount := 4
-		batchSize := 10
+		workerCount := 2
+		batchSize := 20
 
 		fmt.Printf("Creating categories with %d workers and size %d batches\n", workerCount, batchSize)
 
@@ -80,9 +83,21 @@ func SyncCategories(wc_cnf types.ApiConfig, TarsusProducts []types.TarsusProduct
 			createList = append(createList, *lookup[name])
 		}
 
-		errors := wc.CreateCategories(wc_cnf, createList, workerCount, batchSize)
-		for err := range errors {
-			fmt.Println(err)
+		categories, errors := wc.CreateCategories(wc_cnf, createList, workerCount, batchSize)
+
+		errEnd := make(chan struct{}, 0)
+		go func() {
+			for err := range errors {
+				fmt.Println(err)
+			}
+			close(errEnd)
+		}()
+
+		for category := range categories {
+			ids[category.Name] = category.Id
 		}
+		<-errEnd
 	}
+
+	return ids
 }

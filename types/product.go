@@ -124,13 +124,13 @@ type WCImage struct {
 }
 
 type WCDimensions struct {
-	Length string `json:"length"`
-	Width  string `json:"width"`
-	Height string `json:"height"`
+	Length string `json:"length,omitempty"`
+	Width  string `json:"width,omitempty"`
+	Height string `json:"height,omitempty"`
 }
 
 type WooCommerceProduct struct {
-	ID           int           `json:"id,omitempty"`
+	ID           *int          `json:"id,omitempty"`
 	SKU          string        `json:"sku,omitempty"`
 	Name         string        `json:"name,omitempty"`
 	Slug         string        `json:"slug,omitempty"`
@@ -138,7 +138,7 @@ type WooCommerceProduct struct {
 	Tags         []WCTag       `json:"tags,omitempty"`
 	ProductType  string        `json:"type,omitempty"`
 	Categories   []WCCategory  `json:"categories,omitempty"`
-	StockQtty    int           `json:"stock_quantity,omitempty"`
+	StockQtty    *int          `json:"stock_quantity,omitempty"`
 	RegularPrice string        `json:"regular_price,omitempty"`
 	Images       []WCImage     `json:"images,omitempty"`
 	Dimensions   *WCDimensions `json:"dimensions,omitempty"`

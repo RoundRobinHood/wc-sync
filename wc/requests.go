@@ -149,8 +149,9 @@ func_start:
 }
 
 func UpdateProduct(WCCnf types.ApiConfig, product types.WooCommerceProduct) error {
-	url := WCCnf.BaseUrl + "/wp-json/wc/v3/products/" + fmt.Sprint(product.ID)
-	product.ID = 0
+	url := WCCnf.BaseUrl + "/wp-json/wc/v3/products/" + fmt.Sprint(*product.ID)
+func_start:
+	product.ID = nil
 	resp, err := wc_client.Request(url, &rest.RequestOptions{
 		Method:  "PUT",
 		Headers: map[string]string{"Authorization": "Basic " + WCCnf.APIKey},
@@ -162,6 +163,11 @@ func UpdateProduct(WCCnf types.ApiConfig, product types.WooCommerceProduct) erro
 	}
 
 	if resp.StatusCode != 200 {
+		if resp.StatusCode == 429 {
+			fmt.Println("Got 429, retrying...")
+			jitterSleep(true)
+			goto func_start
+		}
 		return fmt.Errorf("Unexpected status code: %d\nResponse body:\n%s\n", resp.StatusCode, string(resp.Body))
 	}
 

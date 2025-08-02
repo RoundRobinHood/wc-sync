@@ -149,7 +149,7 @@ func DeleteCategories(WCCnf types.ApiConfig, IDs []int, workerCount, maxBatch in
 	return errors
 }
 
-func CreateCategories(WCCnf types.ApiConfig, Categories []types.WCCategory, workerCount, maxBatch int) chan error {
+func CreateCategories(WCCnf types.ApiConfig, Categories []types.WCCategory, workerCount, maxBatch int) (chan types.WCCategory, chan error) {
 	batchChannel := make(chan []types.WCCategory, 0)
 	go func() {
 		for i := 0; i < len(Categories); i += maxBatch {
@@ -159,6 +159,7 @@ func CreateCategories(WCCnf types.ApiConfig, Categories []types.WCCategory, work
 	}()
 
 	errors := make(chan error, 0)
+	categories := make(chan types.WCCategory, 0)
 
 	go func() {
 		url := WCCnf.BaseUrl + "/wp-json/wc/v3/products/categories/batch"
@@ -167,19 +168,21 @@ func CreateCategories(WCCnf types.ApiConfig, Categories []types.WCCategory, work
 		bar := pb.StartNew(len(Categories))
 		defer bar.Finish()
 		defer close(errors)
+		defer close(categories)
 
 		for i := range workerCount {
 			go func(i int) {
 				defer wg.Done()
-				for categories := range batchChannel {
+				for batch := range batchChannel {
 				batch_start:
+					var ret types.WCCategory
 					resp, err := wc_client.Request(url, &rest.RequestOptions{
 						Method:           "POST",
 						Headers:          map[string]string{"Authorization": "Basic " + WCCnf.APIKey},
-						Body:             map[string]any{"create": categories},
+						Body:             map[string]any{"create": batch},
 						WithNetworkRetry: true,
 						RetryDelay:       time.Second,
-					}, nil)
+					}, &ret)
 
 					if err != nil {
 						errors <- fmt.Errorf("create batch failed (killing worker %d)", i)
@@ -196,7 +199,8 @@ func CreateCategories(WCCnf types.ApiConfig, Categories []types.WCCategory, work
 						return
 					}
 
-					bar.Add(len(categories))
+					categories <- ret
+					bar.Add(len(batch))
 					jitterSleep(false)
 				}
 			}(i)
@@ -204,5 +208,5 @@ func CreateCategories(WCCnf types.ApiConfig, Categories []types.WCCategory, work
 		wg.Wait()
 	}()
 
-	return errors
+	return categories, errors
 }
